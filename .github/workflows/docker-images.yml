@@ -19,6 +19,7 @@ jobs:
           - shadowsocks
           - sshd
           - moin
+          - tuna.moe
             
     runs-on: ubuntu-latest
     steps:
