@@ -18,6 +18,7 @@ jobs:
         image: 
           - shadowsocks
           - sshd
+          - moin
             
     runs-on: ubuntu-latest
     steps:
