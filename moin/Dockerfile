@@ -12,6 +12,8 @@ RUN cd /tmp && \
     tar xf moin-1.9.8.tar.gz && \
     rm moin-1.9.8.tar.gz && \
     cd moin-1.9.8 && \
+    iconv -f iso-8859-1 setup.cfg  > setup.cfg.new && \
+    mv setup.cfg.new setup.cfg && \
     pip install .
 
 RUN mkdir /moin/
