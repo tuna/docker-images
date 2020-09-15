@@ -17,6 +17,7 @@ jobs:
       matrix:
         image: 
           - shadowsocks
+          - sshd
             
     runs-on: ubuntu-latest
     steps:
@@ -88,7 +89,7 @@ jobs:
         name: Build and push
         uses: docker/build-push-action@v2
         with:
-          context: .
+          context: ${{ env.docker_file }}/
           file: ${{ env.docker_file }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
