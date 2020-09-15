@@ -19,7 +19,9 @@ jobs:
           - shadowsocks
           - sshd
           - moin
-          - tuna.moe
+        include:
+          - image: tuna.moe
+            add_tag: true
             
     runs-on: ubuntu-latest
     steps:
@@ -47,6 +49,14 @@ jobs:
       -
         name: Checkout
         uses: actions/checkout@v2
+      - 
+        name: Patch Dockerfile if needed
+        if: matrix.add_tag
+        env:
+          DF: ${{ env.docker_file }}
+          TAG: ${{ env.docker_tag }}
+        run: |
+          sed -i -r '\@FROM[ \t]+tunathu/@s/(:.*)?$/:'"${TAG}"'/' "${DF}/Dockerfile"
       -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v1
