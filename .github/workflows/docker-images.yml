@@ -19,6 +19,8 @@ jobs:
           - shadowsocks
           - sshd
           - moin
+          - aosp-monthly
+          - git-fcgi
         include:
           - image: tuna.moe
             add_tag: true
