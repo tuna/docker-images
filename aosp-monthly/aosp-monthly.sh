@@ -14,6 +14,7 @@ function repo_init() {
 	mkdir -p $AOSP_DIR
 	cd $AOSP_DIR
 	$REPO init -u http://aosp.tuna.tsinghua.edu.cn/platform/manifest
+	$REPO sync -f --network-only --no-clone-bundle
 }
 
 function package() {
