@@ -1,4 +1,4 @@
-FROM debian:buster
+FROM debian:bookworm
 
 RUN apt-get update && apt-get install -y openssh-server less rsync
 RUN mkdir /var/run/sshd

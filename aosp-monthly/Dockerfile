@@ -1,15 +1,8 @@
-FROM debian:bullseye
-MAINTAINER Justin Wong <yuzhi.wang@tuna.tsinghua.edu.cn>
-
-RUN echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye main contrib non-free" > /etc/apt/sources.list && \
-	echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-backports main contrib non-free" >> /etc/apt/sources.list && \
-	echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
-	echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian-security/ bullseye-security main contrib non-free" >> /etc/apt/sources.list
+FROM debian:bookworm
+LABEL maintainer="Justin Wong <yuzhi.wang@tuna.tsinghua.edu.cn>"
 
 RUN apt-get update && \
-	apt-get install -y wget curl git python3-dev python3-pip
-
-RUN pip3 install --upgrade pip setuptools
+	apt-get install -y wget curl git python3-pip python3-setuptools
 
 RUN mkdir -p /data
 

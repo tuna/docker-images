@@ -1,8 +1,9 @@
-FROM golang:1.15-alpine AS builder
+FROM golang:1.21-alpine AS builder
 
 RUN apk add curl jq git
 RUN mkdir -p /tmp/build
 WORKDIR /tmp/build
+ENV GO111MODULE=off
 RUN \
   github="cyfdecyf/cow"; \
   release="$(curl -Ls "https://api.github.com/repos/$github/releases/latest" | jq -r .tarball_url)"; \
@@ -14,5 +15,5 @@ RUN \
   go get github.com/cyfdecyf/color
 RUN go build -o cow  
 
-FROM alpine:3.12
+FROM alpine:3
 COPY --chown=root:root --from=builder /tmp/build/cow /usr/bin/cow

@@ -1,10 +1,5 @@
-FROM debian:bullseye
-MAINTAINER Justin Wong <yuzhi.wang@tuna.tsinghua.edu.cn>
-
-RUN echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye main contrib non-free" > /etc/apt/sources.list && \
-	echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-backports main contrib non-free" >> /etc/apt/sources.list && \
-	echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian/ bullseye-updates main contrib non-free" >> /etc/apt/sources.list && \
-	echo "deb http://mirrors.tuna.tsinghua.edu.cn/debian-security/ bullseye-security main contrib non-free" >> /etc/apt/sources.list
+FROM debian:bookworm
+LABEL maintainer="Justin Wong <yuzhi.wang@tuna.tsinghua.edu.cn>"
 
 RUN apt-get update && \
 	apt-get install -y spawn-fcgi fcgiwrap multiwatch git

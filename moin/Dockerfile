@@ -6,7 +6,7 @@ RUN apt-get update && \
 RUN pip install --upgrade pip setuptools && \
     pip install python-ldap uwsgi
 
-ADD http://static.moinmo.in/files/moin-1.9.8.tar.gz /tmp/
+ADD http://static.moinmo.in/files/moin-1.9.11.tar.gz /tmp/
 
 RUN cd /tmp && \
     tar xf moin-1.9.8.tar.gz && \
@@ -19,4 +19,3 @@ RUN cd /tmp && \
 RUN mkdir /moin/
 WORKDIR /moin/
 CMD uwsgi --http=0.0.0.0:9000 --wsgi-file moin.wsgi
-
