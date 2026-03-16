@@ -5,7 +5,9 @@ RUN apt-get update && \
 RUN mkdir -p /app
 WORKDIR /app
 COPY go-queue.go /app/
+COPY buffering-proxy.go /app/
 RUN CGO_ENABLED=0 go build -o go-queue go-queue.go
+RUN CGO_ENABLED=0 go build -o buffering-proxy buffering-proxy.go
 
 FROM debian:bookworm
 LABEL maintainer="Justin Wong <yuzhi.wang@tuna.tsinghua.edu.cn>"
@@ -23,6 +25,7 @@ COPY queue-wrapper.sh /queue-wrapper.sh
 RUN mkdir -p /data
 
 COPY --from=builder --chown=0:0 /app/go-queue /go-queue
+COPY --from=builder --chown=0:0 /app/buffering-proxy /buffering-proxy
 
 EXPOSE 5000
 CMD [ "/cmd.sh" ]
