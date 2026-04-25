@@ -1,11 +1,14 @@
 package main
 
 import (
-	"flag"
+	goflag "flag"
 	"fmt"
 	"net"
 	"sync/atomic"
 	"time"
+
+	flag "github.com/spf13/pflag"
+	"k8s.io/klog/v2"
 )
 
 type config struct {
@@ -18,21 +21,25 @@ func parseCLIParams() config {
 	var cfg config
 	var portNumber int
 
+	logFlags := goflag.NewFlagSet("logging", goflag.ExitOnError)
+	klog.InitFlags(logFlags)
 	flag.IntVar(&portNumber, "port-number", 8888, "Port number to listen on")
 	flag.IntVar(&cfg.queueSize, "queue-size", 100, "Queue capacity")
 	flag.DurationVar(&cfg.updatePeriod, "update-period", 1*time.Second, "Queue update period")
+	flag.CommandLine.AddGoFlagSet(logFlags)
+	flag.CommandLine.SortFlags = false
 	flag.Parse()
 
 	if portNumber < 1 || portNumber > 65535 {
-		panic("port-number must be between 1 and 65535")
+		klog.Exitf("Invalid port number: %d. Must be between 1 and 65535.", portNumber)
 	}
 	cfg.portNumber = uint16(portNumber)
 
 	if cfg.queueSize <= 0 {
-		panic("queue-size must be greater than 0")
+		klog.Exitf("Invalid queue size: %d. Must be greater than 0.", cfg.queueSize)
 	}
 	if cfg.updatePeriod <= 0 {
-		panic("update-period must be greater than 0")
+		klog.Exitf("Invalid update period: %v. Must be greater than 0.", cfg.updatePeriod)
 	}
 
 	return cfg
@@ -42,7 +49,7 @@ var idCounter uint64 = 0
 
 func generateID() uint64 {
 	if idCounter == ^uint64(0) {
-		panic("ID counter overflow")
+		klog.Fatal("ID counter overflow")
 	}
 	idCounter++
 	return idCounter
@@ -140,13 +147,13 @@ func main() {
 	listener := func(addr string) {
 		connListener, err := net.Listen("tcp", addr)
 		if err != nil {
-			panic(err)
+			klog.Exitf("Failed to listen on %s: %v", addr, err)
 		}
 		defer connListener.Close()
 		for {
 			conn, err := connListener.Accept()
 			if err != nil {
-				fmt.Printf("Failed to accept connection: %v\n", err)
+				klog.Errorf("Failed to accept connection: %v", err)
 				continue
 			}
 			connections <- conn

@@ -1,10 +1,9 @@
-FROM debian:bookworm as builder
-RUN apt-get update && \
-	apt-get install -y golang --no-install-recommends
+FROM golang:1.26-alpine as builder
+RUN apk add --no-cache ca-certificates
 
 RUN mkdir -p /app
 WORKDIR /app
-COPY go-queue.go /app/
+COPY go-queue.go go.mod go.sum /app/
 RUN CGO_ENABLED=0 go build -o go-queue go-queue.go
 
 FROM debian:bookworm
