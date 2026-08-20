@@ -9,9 +9,14 @@ on:
     branches:
       - master
       - docker-test
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: docker-images-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   multi:
@@ -25,8 +30,13 @@ jobs:
           - aosp-monthly
           - git-fcgi
           - tuna.moe
+        runner:
+          - name: ubuntu-latest
+            platform: linux/amd64
+          - name: ubuntu-24.04-arm
+            platform: linux/arm64
 
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner.name }}
     steps:
       - name: Determine Docker tag
         id: docker_tag
@@ -43,23 +53,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
-        env:
-          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: tunathu/${{ matrix.image }}
-          tags: |
-            type=raw,value=${{ steps.docker_tag.outputs.tag }}
           labels: |
             org.opencontainers.image.title=${{ matrix.image }}
             org.opencontainers.image.description=Runtime image for the ${{ matrix.image }} service
@@ -78,35 +79,114 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v7
+        id: docker_build
         with:
           context: ./${{ matrix.image }}
           file: ./${{ matrix.image }}/Dockerfile
           build-args: |
             MIRROR_WEB_TAG=${{ steps.docker_tag.outputs.tag }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.runner.platform }}
           push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: tunathu/${{ matrix.image }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ runner.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ runner.arch }}
+          outputs: ${{ github.event_name == 'push' && 'type=image,push-by-digest=true,name-canonical=true,push=true' || 'type=image' }}
 
-      - name: Inspect published image
+      - name: Export digest
         if: github.event_name == 'push'
         run: |
-          image="tunathu/${{ matrix.image }}:${{ steps.docker_tag.outputs.tag }}"
-          echo "## $image" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          docker buildx imagetools inspect "$image" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo '| Platform | Compressed size | Digest |' >> "$GITHUB_STEP_SUMMARY"
-          echo '| --- | ---: | --- |' >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p "${{ runner.temp }}/digests/${{ matrix.image }}"
+          digest="${{ steps.docker_build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${{ matrix.image }}/${digest#sha256:}"
 
-          index_json="$(docker buildx imagetools inspect "$image" --raw)"
-          while IFS=$'\t' read -r platform digest; do
-            manifest_json="$(docker buildx imagetools inspect "tunathu/${{ matrix.image }}@$digest" --raw)"
-            size_bytes="$(jq '[.layers[]?.size] | add // 0' <<< "$manifest_json")"
-            size="$(numfmt --to=iec-i --suffix=B --format='%.1f' "$size_bytes")"
-            printf '| `%s` | %s | `%s` |\n' "$platform" "$size" "$digest" \
-              >> "$GITHUB_STEP_SUMMARY"
-          done < <(jq -r '.manifests[] | select(.platform.os != "unknown") | [(.platform.os + "/" + .platform.architecture), .digest] | @tsv' <<< "$index_json")
+      - name: Upload digest
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ matrix.image }}-${{ runner.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    runs-on: ubuntu-latest
+    needs:
+      - multi
+    if: github.event_name == 'push' && needs.multi.result == 'success'
+    steps:
+      - name: Determine Docker tag
+        id: docker_tag
+        env:
+          TAG_NAME: ${{ github.ref }}
+        run: |
+          if [ "${TAG_NAME##*/}" = "master" ]; then
+            tag=latest
+          else
+            tag=build-test
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create manifest lists and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          source_url="${{ github.server_url }}/${{ github.repository }}"
+          version="${{ steps.docker_tag.outputs.tag }}"
+
+          for image in *; do
+            sources=()
+            while IFS= read -r digest; do
+              sources+=("tunathu/$image@sha256:$digest")
+            done < <(find "$image" -maxdepth 1 -type f -printf '%f\n' | sort)
+
+            docker buildx imagetools create -t "tunathu/$image:$version" \
+              --annotation "index:org.opencontainers.image.created=$created" \
+              --annotation "index:org.opencontainers.image.description=Runtime image for the $image service" \
+              --annotation "index:org.opencontainers.image.revision=${{ github.sha }}" \
+              --annotation "index:org.opencontainers.image.source=$source_url" \
+              --annotation "index:org.opencontainers.image.title=$image" \
+              --annotation "index:org.opencontainers.image.url=$source_url" \
+              --annotation "index:org.opencontainers.image.vendor=Tsinghua University TUNA Association" \
+              --annotation "index:org.opencontainers.image.version=$version" \
+              "${sources[@]}"
+          done
+
+      - name: Inspect published images
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          for image in *; do
+            ref="tunathu/$image:${{ steps.docker_tag.outputs.tag }}"
+            echo "## $ref" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            docker buildx imagetools inspect "$ref" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo '| Platform | Compressed size | Digest |' >> "$GITHUB_STEP_SUMMARY"
+            echo '| --- | ---: | --- |' >> "$GITHUB_STEP_SUMMARY"
+
+            index_json="$(docker buildx imagetools inspect "$ref" --raw)"
+            while IFS=$'\t' read -r platform digest; do
+              manifest_json="$(docker buildx imagetools inspect "tunathu/$image@$digest" --raw)"
+              size_bytes="$(jq '[.layers[]?.size] | add // 0' <<< "$manifest_json")"
+              size="$(numfmt --to=iec-i --suffix=B --format='%.1f' "$size_bytes")"
+              printf '| `%s` | %s | `%s` |\n' "$platform" "$size" "$digest" \
+                >> "$GITHUB_STEP_SUMMARY"
+            done < <(jq -r '.manifests[] | select(.platform.os != "unknown") | [(.platform.os + "/" + .platform.architecture), .digest] | @tsv' <<< "$index_json")
+          done
