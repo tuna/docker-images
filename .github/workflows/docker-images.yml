@@ -86,6 +86,7 @@ jobs:
           build-args: |
             MIRROR_WEB_TAG=${{ steps.docker_tag.outputs.tag }}
           platforms: ${{ matrix.runner.platform }}
+          pull: true
           push: ${{ github.event_name == 'push' }}
           tags: tunathu/${{ matrix.image }}
           labels: ${{ steps.meta.outputs.labels }}

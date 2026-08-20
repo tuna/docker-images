@@ -1,6 +1,9 @@
 ARG MIRROR_WEB_TAG=latest
 FROM tunathu/mirror-web:${MIRROR_WEB_TAG} AS builder
 
+ARG MIRROR_WEB_TAG
+ADD "https://hub.docker.com/v2/repositories/tunathu/mirror-web/tags/${MIRROR_WEB_TAG}" /tmp/mirror-web-version.json
+
 RUN git clone https://github.com/developmentseed/jekyll-hook.git /jekyll-hook && \
     cd /jekyll-hook && \
     git revert -n 0de7bcd27a129d27d21af88e6753e4915a626f8a && \
@@ -16,6 +19,7 @@ RUN apt-get update && \
     apt-get install --no-install-recommends -y dumb-init && \
     rm -rf /var/lib/apt/lists/*
 
+COPY --from=builder /tmp/mirror-web-version.json /usr/share/mirror-web/version.json
 COPY --from=builder /jekyll-hook /jekyll-hook
 
 EXPOSE 8080
