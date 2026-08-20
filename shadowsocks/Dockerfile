@@ -1,19 +1,21 @@
 FROM golang:1.21-alpine AS builder
 
-RUN apk add curl jq git
-RUN mkdir -p /tmp/build
+RUN apk add --no-cache ca-certificates curl git jq
+
 WORKDIR /tmp/build
 ENV GO111MODULE=off
+
+ADD https://api.github.com/repos/cyfdecyf/cow/releases/latest /tmp/cow-release.json
+
 RUN \
-  github="cyfdecyf/cow"; \
-  release="$(curl -Ls "https://api.github.com/repos/$github/releases/latest" | jq -r .tarball_url)"; \
-  curl -Ls "$release" | tar -xvz --strip-components 1 
+  release="$(jq -r .tarball_url /tmp/cow-release.json)"; \
+  curl --fail --location --show-error "$release" | tar -xz --strip-components 1
 RUN \
   go get github.com/shadowsocks/shadowsocks-go/shadowsocks && \
   go get github.com/cyfdecyf/bufio && \
   go get github.com/cyfdecyf/leakybuf && \
   go get github.com/cyfdecyf/color
-RUN go build -o cow  
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o cow
 
-FROM alpine:3
+FROM alpine:3.23
 COPY --chown=root:root --from=builder /tmp/build/cow /usr/bin/cow

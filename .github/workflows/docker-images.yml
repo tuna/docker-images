@@ -2,33 +2,34 @@ name: docker-images
 
 on:
   push:
-    branches: 
-    - master
-    - docker-test
+    branches:
+      - master
+      - docker-test
   pull_request:
-    branches: 
-    - master
-    - docker-test
+    branches:
+      - master
+      - docker-test
+
+permissions:
+  contents: read
 
 jobs:
   multi:
     strategy:
       fail-fast: false
       matrix:
-        image: 
+        image:
           - shadowsocks
           - sshd
           - moin
           - aosp-monthly
           - git-fcgi
-        include:
-          - image: tuna.moe
-            add_tag: true
-            
+          - tuna.moe
+
     runs-on: ubuntu-latest
     steps:
-      - 
-        name: Determin docker tag
+      - name: Determine Docker tag
+        id: docker_tag
         env:
           TAG_NAME: ${{ github.ref }}
         run: |
@@ -37,76 +38,75 @@ jobs:
           else
             tag=build-test
           fi
-          echo "docker_tag=${tag}" >> $GITHUB_ENV
-      - 
-        name: Determin dockerfile
-        env:
-          DF: ${{ matrix.dockerfile }}
-          IMG: ${{ matrix.image }}
-        run: |
-          if [ -z "${DF}" ]; then
-            DF="${IMG}"
-          fi
-          echo "docker_file=${DF}" >> $GITHUB_ENV
-      -
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Patch Dockerfile if needed
-        if: matrix.add_tag
-        env:
-          DF: ${{ env.docker_file }}
-          TAG: ${{ env.docker_tag }}
-        run: |
-          sed -i -r '\@FROM[ \t]+tunathu/@s/(:.*)?$/:'"${TAG}"'/' "${DF}/Dockerfile"
-      -
-        name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
-      -
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      -
-        name: Cache Docker layers
-        uses: actions/cache@v3
-        if: github.event_name == 'push'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ matrix.image }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-${{ matrix.image }}-
-      -
-        name: Cache Docker layers
-        uses: actions/cache@v3
-        if: github.event_name == 'pull_request'
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-pr-${{ github.event.pull_request.head.user.login }}-buildx-${{ matrix.image }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-pr-${{ github.event.pull_request.head.user.login }}-buildx-${{ matrix.image }}-
-            ${{ runner.os }}-buildx-${{ matrix.image }}-
-      -
-        name: Cache Docker layers
-        if: github.event_name != 'push' && github.event_name != 'pull_request'
-        run: |
-          echo "I do not know how to setup cache"
-          exit -1
-      -
-        name: Login to DockerHub
-        uses: docker/login-action@v3
+          images: tunathu/${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ steps.docker_tag.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=Runtime image for the ${{ matrix.image }} service
+            org.opencontainers.image.vendor=Tsinghua University TUNA Association
+          annotations: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=Runtime image for the ${{ matrix.image }} service
+            org.opencontainers.image.vendor=Tsinghua University TUNA Association
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
         if: github.event_name == 'push'
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      -
-        name: Build and push
-        uses: docker/build-push-action@v5
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
         with:
-          context: ${{ env.docker_file }}/
-          file: ${{ env.docker_file }}/Dockerfile
+          context: ./${{ matrix.image }}
+          file: ./${{ matrix.image }}/Dockerfile
+          build-args: |
+            MIRROR_WEB_TAG=${{ steps.docker_tag.outputs.tag }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
-          tags: tunathu/${{ matrix.image }}:${{ env.docker_tag }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Inspect published image
+        if: github.event_name == 'push'
+        run: |
+          image="tunathu/${{ matrix.image }}:${{ steps.docker_tag.outputs.tag }}"
+          echo "## $image" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          docker buildx imagetools inspect "$image" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '| Platform | Compressed size | Digest |' >> "$GITHUB_STEP_SUMMARY"
+          echo '| --- | ---: | --- |' >> "$GITHUB_STEP_SUMMARY"
+
+          index_json="$(docker buildx imagetools inspect "$image" --raw)"
+          while IFS=$'\t' read -r platform digest; do
+            manifest_json="$(docker buildx imagetools inspect "tunathu/${{ matrix.image }}@$digest" --raw)"
+            size_bytes="$(jq '[.layers[]?.size] | add // 0' <<< "$manifest_json")"
+            size="$(numfmt --to=iec-i --suffix=B --format='%.1f' "$size_bytes")"
+            printf '| `%s` | %s | `%s` |\n' "$platform" "$size" "$digest" \
+              >> "$GITHUB_STEP_SUMMARY"
+          done < <(jq -r '.manifests[] | select(.platform.os != "unknown") | [(.platform.os + "/" + .platform.architecture), .digest] | @tsv' <<< "$index_json")
